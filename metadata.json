@@ -1,0 +1,6 @@
+{
+  "name": "AgencyOS",
+  "description": "Gerencie sua agência com workspaces individuais por assinatura, APIs SaaS em tempo real integradas com IA, financeiro, tráfego, CRM e agenda.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

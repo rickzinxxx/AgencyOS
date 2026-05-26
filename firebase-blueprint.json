@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile on AgencyOS",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the user"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["email", "name", "createdAt"]
+    },
+    "Venda": {
+      "title": "Venda",
+      "description": "A sale transaction received via store webhook",
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "description": "Transaction amount in BRL"
+        },
+        "customer": {
+          "type": "string",
+          "description": "Customer identifier"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the transaction"
+        },
+        "type": {
+          "type": "string",
+          "description": "Transaction type (receita)"
+        },
+        "payload": {
+          "type": "object",
+          "description": "Raw webhook request payload"
+        }
+      },
+      "required": ["amount", "date", "type"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Registered AgencyOS user document profiles"
+    },
+    "/users/{userId}/vendas/{vendaId}": {
+      "schema": "Venda",
+      "description": "Sales records containing webhook webhook data"
+    }
+  }
+}

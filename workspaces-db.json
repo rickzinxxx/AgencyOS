@@ -1,0 +1,192 @@
+{
+  "owners": [
+    {
+      "email": "rickmarketing81@gmail.com",
+      "name": "Rick Marketing",
+      "agencyName": "Agência Dominadora",
+      "planId": "agency",
+      "selectedAddons": ["financeiro", "fluxo_caixa", "trafego", "maps_scraper", "calculadora_roi", "agenda", "ia_consultora"],
+      "passwordHash": "123"
+    }
+  ],
+  "workspaces": [
+    {
+      "id": "ws1",
+      "ownerEmail": "rickmarketing81@gmail.com",
+      "name": "Minha Agência Principal",
+      "apiKey": "aos_live_8a93bf81d9f82c499b2e",
+      "plan": "agency"
+    },
+    {
+      "id": "ws2",
+      "ownerEmail": "rickmarketing81@gmail.com",
+      "name": "SaaS Vestuário Fit",
+      "apiKey": "aos_live_21bf90df03fc4f2b388d",
+      "plan": "agency"
+    },
+    {
+      "id": "ws3",
+      "ownerEmail": "rickmarketing81@gmail.com",
+      "name": "Nicho Delivery FastFood",
+      "apiKey": "aos_live_4492de719bfca28aef72",
+      "plan": "agency"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "t1",
+      "workspaceId": "ws1",
+      "description": "Assinatura Mensal - Clínica OdontoSorriso",
+      "amount": 1500.0,
+      "type": "receita",
+      "category": "Gestão de Tráfego",
+      "date": "2026-05-20"
+    },
+    {
+      "id": "t2",
+      "workspaceId": "ws1",
+      "description": "Faturamento Mensal - Academia FitLife",
+      "amount": 2000.0,
+      "type": "receita",
+      "category": "Consultoria e CRM",
+      "date": "2026-05-18"
+    },
+    {
+      "id": "t3",
+      "workspaceId": "ws1",
+      "description": "Ferramenta de CRM & Disparador",
+      "amount": -350.0,
+      "type": "despesa",
+      "category": "Software e Ferramentas",
+      "date": "2026-05-17"
+    },
+    {
+      "id": "t4",
+      "workspaceId": "ws1",
+      "description": "Taxa Cloud Server - VPS Leads",
+      "amount": -120.0,
+      "type": "despesa",
+      "category": "Infraestrutura",
+      "date": "2026-05-15"
+    },
+    {
+      "id": "t5",
+      "workspaceId": "ws2",
+      "description": "Prospecção e Nutrição de Leads Pro",
+      "amount": 900.0,
+      "type": "receita",
+      "category": "Maps Scraper Services",
+      "date": "2026-05-12"
+    }
+  ],
+  "leads": [
+    {
+      "id": "l1",
+      "workspaceId": "ws1",
+      "name": "Clínica OdontoSorriso - Dr. Mateus",
+      "phone": "(11) 98765-4321",
+      "address": "Av. Paulista, 1200 - Bela Vista, São Paulo - SP",
+      "category": "Dentista",
+      "rating": 4.6,
+      "reviewsCount": 84,
+      "status": "Novo",
+      "website": "odontosorrisopaulista.com.br"
+    },
+    {
+      "id": "l2",
+      "workspaceId": "ws1",
+      "name": "Academia FitLife & Saúde",
+      "phone": "(11) 97722-1144",
+      "address": "Rua Augusta, 450 - Consolação, São Paulo - SP",
+      "category": "Academia",
+      "rating": 4.2,
+      "reviewsCount": 156,
+      "status": "Em Contato",
+      "website": "academiafitlife.com.br"
+    },
+    {
+      "id": "l3",
+      "workspaceId": "ws1",
+      "name": "Belli Capelli Salão de Beleza",
+      "phone": "(21) 96123-9988",
+      "address": "Av. Atlântica, 1820 - Copacabana, Rio de Janeiro - RJ",
+      "category": "Salão de Beleza",
+      "rating": 4.8,
+      "reviewsCount": 204,
+      "status": "Ganho",
+      "website": "bellicapellisalao.com.br"
+    },
+    {
+      "id": "l4",
+      "workspaceId": "ws2",
+      "name": "Imobiliária Prime Properties",
+      "phone": "(19) 3254-8899",
+      "address": "Av. Norte Sul, 800 - Cambuí, Campinas - SP",
+      "category": "Imobiliária",
+      "rating": 3.9,
+      "reviewsCount": 32,
+      "status": "Novo"
+    }
+  ],
+  "events": [
+    {
+      "id": "e1",
+      "workspaceId": "ws1",
+      "title": "Alinhamento OdontoSorriso - Meta de leads",
+      "date": "2026-05-25",
+      "time": "14:00",
+      "module": "Tráfego",
+      "color": "#a3e635"
+    },
+    {
+      "id": "e2",
+      "workspaceId": "ws1",
+      "title": "Conselho de Gestão - Techify Integrator",
+      "date": "2026-05-26",
+      "time": "10:00",
+      "module": "Financeiro",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "e3",
+      "workspaceId": "ws2",
+      "title": "Demonstração Maps Scraper Leads - Novo Lead",
+      "date": "2026-05-27",
+      "time": "16:30",
+      "module": "Maps Scraper",
+      "color": "#f43f5e"
+    }
+  ],
+  "apiLogs": [
+    {
+      "timestamp": "2026-05-24T23:00:00Z",
+      "workspaceId": "ws1",
+      "method": "POST",
+      "payload": "{\"event\": \"lead_captured\", \"name\": \"AutoCenter Silva\"}",
+      "summary": "[✓ Sucesso] Sincronizado novo lead de CRM: \"AutoCenter Silva\""
+    }
+  ],
+  "customOverrides": {
+    "ws1": {
+      "mrr": 18500,
+      "arr": 222000,
+      "ltv": 15000,
+      "cac": 380,
+      "churnRate": 1.2
+    },
+    "ws2": {
+      "mrr": 6400,
+      "arr": 76800,
+      "ltv": 6400,
+      "cac": 210,
+      "churnRate": 5.1
+    },
+    "ws3": {
+      "mrr": 24500,
+      "arr": 294000,
+      "ltv": 18500,
+      "cac": 820,
+      "churnRate": 1.4
+    }
+  }
+}

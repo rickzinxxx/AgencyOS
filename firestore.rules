@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.\\@]+$');
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'name', 'createdAt']) &&
+             data.email is string && data.email.size() <= 128 &&
+             data.name is string && data.name.size() <= 128;
+    }
+
+    function isValidVenda(data) {
+      return data.keys().hasAll(['amount', 'date', 'type']) &&
+             data.amount is number &&
+             data.date is string &&
+             data.type == 'receita';
+    }
+
+    // Match users documents
+    match /users/{userId} {
+      allow get, read: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email.lower() == userId.lower());
+      allow create, update: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email.lower() == userId.lower()) && isValidUser(request.resource.data);
+      allow delete: if false;
+
+      // Match vendas subcollection
+      match /vendas/{vendaId} {
+        allow read, list: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email.lower() == userId.lower());
+        allow create, update: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email.lower() == userId.lower()) && isValidVenda(request.resource.data);
+        allow delete: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email.lower() == userId.lower());
+      }
+    }
+  }
+}
