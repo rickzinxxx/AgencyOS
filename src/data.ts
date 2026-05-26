@@ -72,7 +72,7 @@ export const PLANS: Plan[] = [
       'Calculadora de ROI',
       '1 usuário'
     ],
-    buttonText: 'Começar Grátis 14 dias'
+    buttonText: 'Assinar Starter'
   },
   {
     id: 'pro',

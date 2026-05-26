@@ -16,12 +16,32 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { email, planName, price, userId } = req.body;
+    let email = req.body.email || req.body.userEmail;
+    let planName = req.body.planName;
+    let price = req.body.price;
+    let userId = req.body.userId;
 
-    // Validações básicas de entrada
+    if (req.body.planId) {
+      const planId = req.body.planId.toLowerCase();
+      if (planId === 'starter') {
+        planName = 'Starter';
+        price = 197;
+      } else if (planId === 'pro') {
+        planName = 'Pro';
+        price = 497;
+      } else if (planId === 'agency') {
+        planName = 'Agency';
+        price = 997;
+      } else {
+        planName = 'Pro';
+        price = 497;
+      }
+    }
+
+    // Validações básicas de entrada após mapeamento
     if (!email || !planName || !price) {
       return res.status(400).json({ 
-        error: 'Os campos "email", "planName" e "price" são obrigatórios para emitir a assinatura.' 
+        error: 'Os campos "email" (ou "userEmail") e o plano selecionado são obrigatórios para emitir a assinatura.' 
       });
     }
 
@@ -63,6 +83,7 @@ export default async function handler(req, res) {
         subscriptionId: response.id,
         // O init_point é a URL do checkout que o usuário acessará para concluir a assinatura
         initPoint: response.init_point || `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=${response.id}`,
+        init_point: response.init_point || `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=${response.id}`,
         status: response.status
       });
     } else {
@@ -82,6 +103,7 @@ export default async function handler(req, res) {
       success: true,
       subscriptionId: fallbackId,
       initPoint: mockCheckoutUrl,
+      init_point: mockCheckoutUrl,
       simulated: true,
       message: 'Checkout gerado em modo de depuração por fallback de segurança local.'
     });
