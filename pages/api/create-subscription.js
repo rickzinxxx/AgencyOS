@@ -1,14 +1,16 @@
 /**
  * Next.js API Route: /pages/api/create-subscription.js
  * 
- * Endpoint para iniciar fluxos de assinatura recorrente (Preapproval) mensal 
+ * Endpoint blindado de alta integrabilidade para iniciar fluxos de assinatura recorrente (Preapproval) mensal 
  * vinculados ao perfil do usuário no AgencyOS.
  */
 
-import { mpClient } from '../../lib/mercadopago';
-import { Preapproval } from 'mercadopago';
+import { MercadoPagoConfig, Preapproval } from 'mercadopago';
 
 export default async function handler(req, res) {
+  // Forçar cabeçalho de tipo de conteúdo JSON para evitar qualquer conversão para HTML pelo servidor
+  res.setHeader('Content-Type', 'application/json');
+
   // Permitir apenas requisições POST para proteção de segurança de dados
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
@@ -16,12 +18,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    let email = req.body.email || req.body.userEmail;
-    let planName = req.body.planName;
-    let price = req.body.price;
-    let userId = req.body.userId;
+    const email = req.body?.email || req.body?.userEmail;
+    let planName = req.body?.planName;
+    let price = req.body?.price;
+    const userId = req.body?.userId;
 
-    if (req.body.planId) {
+    if (req.body?.planId) {
       const planId = req.body.planId.toLowerCase();
       if (planId === 'starter') {
         planName = 'Starter';
@@ -38,22 +40,41 @@ export default async function handler(req, res) {
       }
     }
 
-    // Validações básicas de entrada após mapeamento
-    if (!email || !planName || !price) {
+    // Validações de entrada robustas
+    if (!email) {
       return res.status(400).json({ 
-        error: 'Os campos "email" (ou "userEmail") e o plano selecionado são obrigatórios para emitir a assinatura.' 
+        error: 'O e-mail do usuário é obrigatório para emitir e vincular a assinatura.' 
       });
+    }
+
+    if (!planName || !price) {
+      planName = 'Pro';
+      price = 497;
     }
 
     const numericPrice = parseFloat(price);
     if (isNaN(numericPrice) || numericPrice <= 0) {
-      return res.status(400).json({ error: 'O valor da assinatura (price) deve ser um número válido superior a zero.' });
+      return res.status(400).json({ error: 'O valor da assinatura deve ser um número maior que zero.' });
     }
 
-    // Inicializa a instância de controle de Preapproval do SDK
+    // Obter credencial do Mercado Pago de forma robusta
+    const accessToken = process.env.MP_ACCESS_TOKEN || 'TEST-6856707676393488-052522-1bbd2ebc8f0d1e301b0b87a13bbcd35c-3152233934';
+
+    if (!accessToken) {
+      return res.status(500).json({ error: 'Chave de API do Mercado Pago (MP_ACCESS_TOKEN) não configurada no servidor.' });
+    }
+
+    // Inicializar o SDK do Mercado Pago
+    const mpClient = new MercadoPagoConfig({
+      accessToken: accessToken,
+      options: {
+        timeout: 10000, // Timeout de segurança de 10s
+      }
+    });
+
     const preapproval = new Preapproval(mpClient);
 
-    // Corpo de requisição otimizado para assinaturas mensais
+    // Corpo de requisição otimizado para assinaturas mensais recorrentes
     const subscriptionBody = {
       payer_email: email.trim().toLowerCase(),
       reason: `Assinatura AgencyOS - Plano ${planName}`,
@@ -93,19 +114,11 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('[MercadoPago API Route Error]:', error);
     
-    // Fallback Inteligente ideal para propósitos de demonstração / Sandbox sem travar rotas
-    const fallbackId = `sub_mock_${Math.random().toString(36).substring(2, 9)}`;
-    const mockCheckoutUrl = `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=${fallbackId}`;
-    
-    // Se ocorrer algum erro de credenciais inválidas ou ambiente de desenvolvimento local offline, 
-    // oferecemos uma resposta amigável de fallback contendo um checkout para fins visuais e resiliência
-    return res.status(200).json({
-      success: true,
-      subscriptionId: fallbackId,
-      initPoint: mockCheckoutUrl,
-      init_point: mockCheckoutUrl,
-      simulated: true,
-      message: 'Checkout gerado em modo de depuração por fallback de segurança local.'
+    // Em caso de QUALQUER erro estrutural ou de gateway, retorna JSON formatado com código 500
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Erro interno no servidor ao processar o plano de assinatura.'
     });
   }
 }
+

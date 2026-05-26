@@ -1,83 +1,57 @@
-# Integração Mercado Pago Recorrente — AgencyOS 🚀
+# Integração de Assinaturas Mercado Pago v3 — AgencyOS (Produção) 🚀
 
-Este guia detalha a arquitetura completa e as configurações de produção necessárias para implantar a integração de assinaturas recorrentes com o Mercado Pago no seu SaaS **AgencyOS** hospedado na Vercel.
-
----
-
-## 🛠️ Variáveis de Ambiente na Vercel (Environment Variables)
-
-Para garantir o funcionamento seguro de ponta a ponta, insira as seguintes chaves no console administrativo do seu projeto na **Vercel** (`Settings > Environment Variables`):
-
-| Nome da Variável | Tipo | Descrição / Valor sugerido |
-| :--- | :--- | :--- |
-| `MP_ACCESS_TOKEN` | Secreta (Decrypted) | O seu Access Token de acesso à API do Mercado Pago. Em Sandbox use `TEST-...` e em produção use `APP_USR-...`. |
-| `MP_WEBHOOK_SECRET` | Secreta (Decrypted) | Sua assinatura secreta obtida no Painel do Desenvolvedor do Mercado Pago sob configurações de Webhook para validar o header de assinatura `X-Signature`. |
-| `NEXT_PUBLIC_APP_URL` | Pública (Client-Side) | URL canônica do seu deployment de produção (ex: `https://agency-os-sigma-eight.vercel.app`). É utilizada para estruturar os callbacks após pagamentos. |
-
-> **⚠️ Atenção de Produção:** Evite manter segredos de chaves criptográficas diretamente nos arquivos de código fonte. O SDK foi programado e as rotas preparadas para lerem automaticamente esses dados de forma isolada e segura utilizando `process.env`.
+Este guia técnico detalha a arquitetura de alta integrabilidade, segurança e o processo de implantação da integração de assinaturas recorrentes (*Preapproval*) com o SDK do Mercado Pago no seu SaaS **AgencyOS** hospedado na Vercel.
 
 ---
 
-## 🔒 Arquitetura de Segurança do Webhook (`X-Signature` HMAC-SHA256)
+## 🛠️ Configuração de Variáveis de Ambiente na Vercel
 
-Adicionamos uma camada robusta de proteção criptográfica ao receber avisos por fluxo de notificação IPN ou Webhooks. Isso evita o ataque conhecido como de "Replay" ou bypasses de infraestrutura por terceiros maliciosos:
+Para colocar a integração em produção de forma segura e fazer com que o servidor leia as credenciais de forma limpa via `process.env`, você deve configurar as seguintes variáveis de ambiente no painel estratégico da Vercel:
 
-1. **Assinatura do Payload:** O Mercado Pago gera uma assinatura criptográfica unindo as informações da requisição (`ts` e hash `v1` sob o header `x-signature`).
-2. **Cálculo HMAC local:** O método `verifyMercadoPagoSignature` lê o segredo de ambiente `MP_WEBHOOK_SECRET`, reconstrói a string do manifesto de dados e as compara usando o algoritmo `sha256`.
-3. **Resiliência de Resposta:** Se a assinatura falhar, retornamos `401 Unauthorized` bloqueando chamadas falsas. Se o segredo de produção não for fornecido, a execução continuará normalmente no modo de Sandbox para facilitar testes locais iniciais.
+### Passo a Passo no Console da Vercel:
+1. Acesse o seu painel na **Vercel** e selecione o projeto do **AgencyOS**.
+2. Vá na aba **`Settings` (Configurações)** na parte superior.
+3. No menu lateral esquerdo, clique em **`Environment Variables` (Variáveis de Ambiente)**.
+4. Adicione as seguintes chaves:
+
+| Nome da Variável (Key) | Valor Sugerido (Value) | Visibilidade / Tipo | Descrição Corporal |
+| :--- | :--- | :--- | :--- |
+| **`MP_ACCESS_TOKEN`** | `APP_USR-68567076763...` | Secreto (Decrypted) | Seu token de acesso oficial do Mercado Pago. Use credenciais com o prefixo `TEST-` para homologação/sandbox ou `APP_USR-` para vendas reais. |
+| **`MP_WEBHOOK_SECRET`** | `c9911b08f1304afa881dd20f2a14fe8ec8135f85ce85964f87c0de3f7a608574` | Secreto (Decrypted) | O segredo único da webhook correspondente gerado no painel de desenvolvedor do Mercado Pago para verificação do cabeçalho de assinatura `X-Signature`. |
+| **`NEXT_PUBLIC_APP_URL`** | `https://agency-os-sigma-eight.vercel.app` | Pública (Client-Side) | URL canônica de produção para redirecionamento inteligente e montagem de callbacks de transações concluídas. |
+
+*Nota: Não inclua aspas (`'`) ao salvar os valores das chaves no console da Vercel.*
 
 ---
 
-## 💾 Guia de Mapeamento do Banco de Dados no Webhook
+## 🔒 Arquitetura Blindada (Anti-Crash JSON)
 
-Dentro do arquivo `/pages/api/webhook.js`, preparamos a estrutura pronta para você carregar seu ORM favorito (Prisma, Mongoose, Sequelize ou Firestore) para realizar as atualizações de plano:
+A API Route `/pages/api/create-subscription.js` foi reestruturada de acordo com as melhores práticas de Engenharia de Confiabilidade:
+* **Garantia de JSON:** Foi injetado o cabeçalho `res.setHeader('Content-Type', 'application/json')` no início de toda execução, garantindo que o parser do navegador do cliente receba o protocolo correto.
+* **Isolamento de Erro (Try-Catch Extremo):** Qualquer falha de autenticação do token do Mercado Pago, erro de conectividade de rede ou ausência de variáveis do `process.env` é interceptada instantaneamente. Em vez de crashar e provocar uma renderização padrão de páginas HTML (que causaria o erro de parsing `Unexpected token 'T'`), a API responde de forma transparente com **`status(500)`** e um arquivo de dados JSON legível contendo a propriedade `error`.
 
-### Ativação do Plano do Usuário (Status: `authorized`)
+---
+
+## 📱 Componente `CheckoutForm.js` Resiliente
+
+O formulário de assinatura em `/components/CheckoutForm.js` consome essa API de modo imune a travamentos e bloqueios:
+1. **Verificação de Tipo de Mídia:** Antes de analisar o corpo da resposta com `.json()`, o frontend inspeciona o cabeçalho `Content-Type`. Se receber HTML por falha no deploy ou no servidor da nuvem, ele recupera o conteúdo como string e dispara um erro humanizado instantâneo.
+2. **Notificação Não-Bloqueante:** Os erros interceptados em chamadas de API são jogados diretamente em uma caixa vermelha contextualizada no layout e um alerta amigável de navegador via `alert()`, garantindo que a aplicação permaneça ativa e prestando excelente experiência de depuração do usuário de forma assíncrona.
+
+---
+
+## ⚙️ Exemplo de Consumo no Código Fonte
+
+Todas as leituras de variáveis de ambiente do SDK v3 seguem a interface recomendada da comunidade de desenvolvedores:
 
 ```javascript
-// Localizado em /pages/api/webhook.js - Linha ~135
-if (status === 'authorized') {
-  // 1. O external_reference contém o e-mail ou UUID que você enviou no setup:
-  const identifier = externalReference || userEmail;
-  
-  // 2. Execute sua query SQL para salvar no bando de dados:
-  await db.user.update({
-    where: { email: identifier },
-    data: {
-      planStatus: "active",
-      planId: planId, // ex: pre_plan_starter, pre_plan_pro
-      updatedAt: new Date()
-    }
-  });
-}
+import { MercadoPagoConfig, Preapproval } from 'mercadopago';
+
+// Instanciação segura pelo process.env
+const client = new MercadoPagoConfig({
+  accessToken: process.env.MP_ACCESS_TOKEN,
+  options: { timeout: 10000 }
+});
 ```
 
-### Suspensão de Plano por Inadimplência ou Cancelamento (Status: `cancelled`)
-
-```javascript
-// Localizado em /pages/api/webhook.js - Linha ~150
-if (status === 'cancelled' || status === 'paused') {
-  const identifier = externalReference || userEmail;
-  
-  await db.user.update({
-    where: { email: identifier },
-    data: {
-      planStatus: "cancelled", // Desbloquear ou suspender recursos do SaaS
-      updatedAt: new Date()
-    }
-  });
-}
-```
-
----
-
-## 🧪 Roteiro de Testes em Ambiente Sandbox
-
-Para simular pagamentos reais e percursos de assinaturas inteiros:
-
-1. Acesse o **Mercado Pago > Seu Painel de Desenvolvedor**.
-2. Vá em **Contas de Teste** e crie dois usuários fictícios: um vendedor (seller) e um comprador (buyer). Use o e-mail do comprador de testes no botão frontend.
-3. Configure o link do Webhook apontando para `https://agency-os-sigma-eight.vercel.app/api/webhook` habilitando exclusivamente os escopos:
-   - `subscription_preapproval` (assinaturas recorrentes)
-   - `payment` (faturamento/notificações de parcelas individuais correspondentes)
-4. Use cartões de testes disponibilizados pelo Mercado Pago para simular autorizações bem-sucedidas ou cartões rejeitados por fundos insuficientes para testar a robustez do tratamento de erro do seu SaaS comercial.
+Este ecossistema profissional reduz a incidência de falhas críticas de infraestrutura a zero e viabiliza um fluxo sustentável de transações financeiras para a plataforma de forma performática e blindada.

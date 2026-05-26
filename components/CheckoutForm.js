@@ -73,6 +73,7 @@ export default function CheckoutForm({ initialPlanId = 'pro' }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
@@ -83,18 +84,33 @@ export default function CheckoutForm({ initialPlanId = 'pro' }) {
         }),
       });
 
-      const data = await response.json();
+      let data = {};
+      const contentType = response.headers.get('content-type') || '';
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || data.error || 'Erro na criação da sessão de pagamento.');
+      if (contentType.includes('application/json')) {
+        try {
+          data = await response.json();
+        } catch (jsonErr) {
+          console.error('[CheckoutForm JSON Parse Error]:', jsonErr);
+          throw new Error('A resposta de pagamento retornada pelo servidor não é um JSON válido.');
+        }
+      } else {
+        // Tratamento de retornos inesperados do tipo HTML (falha comum de roteamento ou servidor quebrado)
+        const textError = await response.text();
+        console.error('[CheckoutForm HTML Error Response]:', textError);
+        throw new Error(`O servidor retornou uma página inválida (Status ${response.status}) em vez de JSON.`);
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || data.message || 'Erro na criação da sessão de pagamento.');
       }
 
       setSuccessMsg('Assinatura gerada! Redirecionando para as telas seguras do Mercado Pago...');
 
       // Pequeno timeout para o usuário visualizar o sucesso antes de sair da página
       setTimeout(() => {
-        if (data.initPoint) {
-          window.location.href = data.initPoint;
+        if (data.initPoint || data.init_point) {
+          window.location.href = data.initPoint || data.init_point;
         } else {
           setError('Não foi possível obter o link de checkout (init_point) do Mercado Pago.');
           setLoading(false);
@@ -103,7 +119,11 @@ export default function CheckoutForm({ initialPlanId = 'pro' }) {
 
     } catch (err) {
       console.error('[CheckoutForm Request Critical Error]:', err);
-      setError(err?.message || 'Houve um erro de rede ou de configuração da chave de API do Mercado Pago.');
+      const friendlyMessage = err?.message || 'Houve um erro de rede ou de configuração da chave de API do Mercado Pago.';
+      setError(friendlyMessage);
+      
+      // Mensagem clara exposta ao usuário de forma não impeditiva
+      alert(`⚠️ Falha no Checkout:\n\n${friendlyMessage}\n\nVerifique as variáveis de ambiente MP_ACCESS_TOKEN nas configurações da plataforma.`);
       setLoading(false);
     }
   };
