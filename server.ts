@@ -7,12 +7,44 @@ import fs from "fs";
 import nodemailer from "nodemailer";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, collection, addDoc } from "firebase/firestore";
+import admin from "firebase-admin";
 
 dotenv.config();
 
-const DB_PATH = path.join(process.cwd(), "workspaces-db.json");
+// Initialize Firebase Admin gracefully
 const CONFIG_PATH = path.join(process.cwd(), "firebase-applet-config.json");
 const firebaseConfig = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) : {};
+
+if (!admin.apps.length) {
+  try {
+    const projectId = process.env.FIREBASE_PROJECT_ID || firebaseConfig.projectId;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+    if (projectId && clientEmail && privateKey) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey: privateKey.replace(/\\n/g, '\n'),
+        }),
+      });
+      console.log("[Firebase Admin] successfully initialized via Service Account Cert.");
+    } else if (projectId) {
+      admin.initializeApp({
+        projectId: projectId
+      });
+      console.log("[Firebase Admin] successfully initialized with Local Project ID (using ADC/Sandbox Credentials):", projectId);
+    } else {
+      admin.initializeApp();
+      console.log("[Firebase Admin] successfully initialized via default container credentials.");
+    }
+  } catch (error) {
+    console.error("[Firebase Admin] Setup error:", error);
+  }
+}
+
+const DB_PATH = path.join(process.cwd(), "workspaces-db.json");
 
 // Helper to read database
 function readDb() {
@@ -691,161 +723,228 @@ async function startServer() {
   });
 
 
-  // 3.5 MERCADO PAGO RECURRING SUBSCRIPTIONS INTEGRATION ENDPOINTS
-  app.post("/api/create-subscription", async (req, res) => {
+  // 3.1 CAKTO WEBHOOK AND ACTIVE CHECK ENDPOINTS
+  app.post("/api/webhooks/cakto", async (req, res) => {
     try {
-      let email = req.body.email || req.body.userEmail;
-      let planId = req.body.planId;
-      let userId = req.body.userId;
-      let planName = req.body.planName;
-      let price = req.body.price;
+      const { event, eventType, status, productName, product_name, product, email, customer, payer_email } = req.body || {};
+      
+      const activeEvent = event || eventType || status;
+      const activeEmail = email || customer?.email || payer_email;
+      const activeProduct = productName || product_name || product?.name || product;
 
-      if (planId) {
-        const pId = planId.toLowerCase();
-        if (pId === 'starter') {
-          planName = 'Starter';
-          price = 197;
-        } else if (pId === 'pro') {
-          planName = 'Pro';
-          price = 497;
-        } else if (pId === 'agency') {
-          planName = 'Agency';
-          price = 997;
-        } else {
-          planName = 'Pro';
-          price = 497;
+      if (!activeEmail) {
+        console.warn("[Cakto Webhook] E-mail não localizado no corpo do webhook:", req.body);
+        return res.status(200).json({ received: true, warning: "E-mail não localizado" });
+      }
+
+      let detectedPlan = "pro";
+      if (activeProduct) {
+        const prodLower = String(activeProduct).toLowerCase();
+        if (prodLower.includes("starter")) {
+          detectedPlan = "starter";
+        } else if (prodLower.includes("pro")) {
+          detectedPlan = "pro";
+        } else if (prodLower.includes("agency")) {
+          detectedPlan = "agency";
         }
       }
 
-      if (!email) {
-        email = "usuario_demo@agencyos.com";
+      const emailKey = String(activeEmail).trim().toLowerCase();
+
+      if (!admin.apps.length) {
+        console.warn("[Cakto Webhook] Firebase Admin não inicializado. Atualizando apenas banco local.");
+        
+        // Update local database as fallback
+        const dbLocal = readDb();
+        const ownerIndex = dbLocal.owners.findIndex((o: any) => o.email.toLowerCase() === emailKey);
+        if (ownerIndex !== -1) {
+          dbLocal.owners[ownerIndex].planId = detectedPlan;
+          writeDb(dbLocal);
+        }
+        return res.status(200).json({ success: true, message: "Webhook gravado localmente (Simulação)" });
       }
-      if (!planName) {
-        planName = "Pro";
-      }
-      if (!price) {
-        price = 497;
-      }
 
-      const ACCESS_TOKEN = 'TEST-6856707676393488-052522-1bbd2ebc8f0d1e301b0b87a13bbcd35c-3152233934';
-      const mpModule = await import("mercadopago") as any;
-      const MercadoPagoConfig = mpModule.MercadoPagoConfig;
-      const Preapproval = mpModule.Preapproval;
-      const mpConfig = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
-      const preapproval = new Preapproval(mpConfig);
+      const db = admin.firestore();
+      const usersRef = db.collection("users");
 
-      const subscriptionBody = {
-        payer_email: email.trim().toLowerCase(),
-        reason: `Assinatura AgencyOS - Plano ${planName}`,
-        external_reference: userId || email.trim().toLowerCase(),
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: 'months',
-          transaction_amount: parseFloat(price.toString()),
-          currency_id: 'BRL',
-        },
-        back_url: `${req.protocol}://${req.get('host')}/dashboard`,
-        status: 'pending'
-      };
+      const successEvents = ["order.approved", "subscription.created", "subscription.renewed"];
+      const cancelEvents = ["subscription.canceled"];
 
-      console.log('[MercadoPago Express] Payload enviado para Preapproval:', JSON.stringify(subscriptionBody, null, 2));
+      const snapshot = await usersRef.where("email", "==", emailKey).get();
 
-      const response = await preapproval.create({ body: subscriptionBody });
-
-      if (response && response.id) {
-        console.log(`[MercadoPago Express] Assinatura gerada com sucesso! ID: ${response.id}`);
-        return res.status(200).json({
-          success: true,
-          subscriptionId: response.id,
-          initPoint: response.init_point || `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=${response.id}`,
-          init_point: response.init_point || `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=${response.id}`,
-          status: response.status
+      if (!snapshot.empty) {
+        const batch = db.batch();
+        snapshot.forEach(doc => {
+          if (successEvents.includes(activeEvent)) {
+            batch.update(doc.ref, {
+              status: "active",
+              plan: detectedPlan,
+              updatedAt: new Date().toISOString()
+            });
+          } else if (cancelEvents.includes(activeEvent)) {
+            batch.update(doc.ref, {
+              status: "inactive",
+              updatedAt: new Date().toISOString()
+            });
+          }
         });
+        await batch.commit();
+        console.log(`[Cakto Webhook] ${snapshot.size} usuários atualizados para plano: ${detectedPlan}`);
       } else {
-        throw new Error('A resposta do Mercado Pago não possui um ID de assinatura válido.');
+        const docRef = usersRef.doc(emailKey);
+        const userDoc = await docRef.get();
+
+        if (userDoc.exists) {
+          if (successEvents.includes(activeEvent)) {
+            await docRef.update({
+              status: "active",
+              plan: detectedPlan,
+              updatedAt: new Date().toISOString()
+            });
+          } else if (cancelEvents.includes(activeEvent)) {
+            await docRef.update({
+              status: "inactive",
+              updatedAt: new Date().toISOString()
+            });
+          }
+        } else {
+          if (successEvents.includes(activeEvent)) {
+            await docRef.set({
+              email: emailKey,
+              name: emailKey.split("@")[0],
+              status: "active",
+              plan: detectedPlan,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }
       }
-    } catch (error: any) {
-      console.warn("[Mercado Pago Express] Utilizando Fallback do Simulador de Proteção de Token Expirado para create-subscription:", error.message || error);
-      
-      const fallbackId = `sub_mock_${Math.random().toString(36).substring(2, 9)}`;
-      const mockCheckoutUrl = `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=${fallbackId}`;
-      
-      return res.status(200).json({
-        success: true,
-        subscriptionId: fallbackId,
-        initPoint: mockCheckoutUrl,
-        init_point: mockCheckoutUrl,
-        simulated: true,
-        message: 'Checkout gerado em modo de depuração por fallback de segurança local.'
-      });
+
+      return res.status(200).json({ success: true, message: "Webhook Cakto processado com sucesso!" });
+    } catch (err: any) {
+      console.error("[Cakto Webhook Erro]:", err);
+      return res.status(200).json({ success: false, error: err.message });
     }
   });
 
-  app.post("/api/payments/create-subscription-plan", async (req, res) => {
+  app.post("/api/auth/check-active", async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "O e-mail é obrigatório para validação de acesso." });
+    }
+
+    const emailKey = email.trim().toLowerCase();
+
     try {
-      const { planName, price } = req.body;
-      if (!planName || !price) {
-        return res.status(400).json({ error: "Nome do plano (planName) e valor (price) são obrigatórios." });
+      if (!admin.apps.length) {
+        // Fallback: permissão de simulação se o Firebase Admin não estiver configurado na conta
+        const dbLocal = readDb();
+        const localOwner = dbLocal.owners.find((o: any) => o.email.toLowerCase() === emailKey);
+        if (localOwner) {
+          const userWorkspaces = dbLocal.workspaces.filter((w: any) => w.ownerEmail === emailKey);
+          const defaultWorkspaceId = userWorkspaces.length > 0 ? userWorkspaces[0].id : "ws_init_0";
+          return res.json({
+            success: true,
+            active: true,
+            plan: localOwner.planId || "pro",
+            user: localOwner,
+            defaultWorkspaceId
+          });
+        }
+        return res.status(403).json({ error: "Nenhum usuário ativo com este e-mail. Adquira um plano para acessar!" });
       }
 
-      const ACCESS_TOKEN = 'TEST-6856707676393488-052522-1bbd2ebc8f0d1e301b0b87a13bbcd35c-3152233934';
-      
-      // Dynamic import of the official 'mercadopago' SDK for ES module compatibility
-      const mpModulePlan = await import("mercadopago") as any;
-      const MercadoPagoConfig = mpModulePlan.MercadoPagoConfig;
-      const PreapprovalPlan = mpModulePlan.PreapprovalPlan;
-      
-      const mpConfig = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
-      const planClient = new PreapprovalPlan(mpConfig);
+      const db = admin.firestore();
+      const usersRef = db.collection("users");
+      const snapshot = await usersRef.where("email", "==", emailKey).get();
+      let userData: any = null;
 
-      const planBody = {
-        reason: `Assinatura AgencyOS - Plano ${planName}`,
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: 'months',
-          transaction_amount: parseFloat(price),
-          currency_id: 'BRL',
-        },
-        back_url: `${req.protocol}://${req.get('host')}/api/payments/callback`
-      };
+      if (!snapshot.empty) {
+        userData = snapshot.docs[0].data();
+      } else {
+        const docRef = usersRef.doc(emailKey);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          userData = docSnap.data();
+        }
+      }
 
-      const result = await planClient.create({ body: planBody });
-      console.log(`[Mercado Pago Sandbox] Plano de Assinatura Criado com Sucesso: ${result.id}`);
+      if (userData && userData.status === "active") {
+        const dbLocal = readDb();
+        let owner = dbLocal.owners.find((o: any) => o.email.toLowerCase() === emailKey);
+        
+        if (!owner) {
+          owner = {
+            email: emailKey,
+            passwordHash: "123",
+            name: userData.name || emailKey.split("@")[0],
+            agencyName: "Minha Agência Digital",
+            planId: userData.plan || "pro",
+            selectedAddons: ["financeiro", "fluxo_caixa", "agenda", "calculadora_roi"]
+          };
+          dbLocal.owners.push(owner);
 
-      return res.json({
-        success: true,
-        planId: result.id,
-        init_point: result.back_url || `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=${result.id}`,
-        details: result
+          const wsId = "ws_" + Math.random().toString(36).substring(2, 9);
+          dbLocal.workspaces.push({
+            id: wsId,
+            ownerEmail: emailKey,
+            name: "Workspace Agência Principal",
+            apiKey: "aos_live_" + Math.random().toString(36).substring(2, 12),
+            plan: userData.plan || "pro"
+          });
+          dbLocal.customOverrides[wsId] = {
+            mrr: 4500,
+            arr: 54000,
+            ltv: 12500,
+            cac: 475,
+            churnRate: 2.8
+          };
+          writeDb(dbLocal);
+        } else if (owner.planId !== userData.plan) {
+          owner.planId = userData.plan;
+          writeDb(dbLocal);
+        }
+
+        const userWorkspaces = dbLocal.workspaces.filter((w: any) => w.ownerEmail === emailKey);
+        const defaultWorkspaceId = userWorkspaces.length > 0 ? userWorkspaces[0].id : "ws_init_0";
+
+        return res.json({
+          success: true,
+          active: true,
+          plan: userData.plan || "pro",
+          user: owner,
+          defaultWorkspaceId
+        });
+      }
+
+      return res.status(403).json({
+        success: false,
+        active: false,
+        error: "Esse e-mail não possui assinatura ativa no AgencyOS ou está inativo. Caso tenha acabado de assinar, aguarde alguns segundos e tente novamente!"
       });
-
-    } catch (error: any) {
-      console.warn("[Mercado Pago Sandbox] Utilizando Fallback do Simulador de Proteção de Token Expirado:", error.message || error);
-      
-      // Gerar ID de teste realista e URL de simulação para evitar falhas ou erros de render na demonstração ativa do usuário
-      const fallbackId = `pre_plan_${Math.random().toString(36).substring(2, 9)}`;
-      return res.json({
-        success: true,
-        planId: fallbackId,
-        init_point: `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=${fallbackId}`,
-        simulated: true,
-        message: "Checkout simulado gerado com sucesso devido a restrição de credenciais de teste locais."
-      });
+    } catch (err: any) {
+      console.error("Erro verificação active login:", err);
+      // Fallback local db
+      const dbLocal = readDb();
+      const localOwner = dbLocal.owners.find((o: any) => o.email.toLowerCase() === emailKey);
+      if (localOwner) {
+        const userWorkspaces = dbLocal.workspaces.filter((w: any) => w.ownerEmail === emailKey);
+        const defaultWorkspaceId = userWorkspaces.length > 0 ? userWorkspaces[0].id : "ws_init_0";
+        return res.json({
+          success: true,
+          active: true,
+          plan: localOwner.planId || "pro",
+          user: localOwner,
+          defaultWorkspaceId
+        });
+      }
+      return res.status(500).json({ error: "Erro interno no servidor de validação.", details: err.message });
     }
   });
 
-  app.post("/api/payments/webhook", async (req, res) => {
-    try {
-      const { action, type, data } = req.body || {};
-      console.log(`[Mercado Pago Webhook] Notificação comercial recebida no Express: Tipo: ${type || 'Indefinido'}, Recurso: ${data?.id || 'Desconhecido'}`);
-      
-      // Retornar 200 OK para o Mercado Pago confirmar recepção segura
-      return res.status(200).json({ received: true });
-    } catch (error: any) {
-      console.error("[Mercado Pago Webhook Error] Falha de leitura:", error);
-      return res.status(500).json({ error: "Erro interno no processamento de webhook." });
-    }
-  });
+
+  // Removed old Mercado Pago integration endpoints in favor of direct Cakto checkout redirect.
 
 
   // 4. PUBLIC API GATEWAY (REAL Live Endpoint / Webhooks from stripe, forms, calendars etc.)

@@ -22,6 +22,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { INITIAL_MODULES, PLANS, FAQ_ITEMS } from '../data';
 import { AgencyModule, Plan } from '../types';
 
+const LINKS_CAKTO = {
+  starter: "https://pay.cakto.com.br/8nzbds5_902958", // Temporário até criar o Starter
+  pro: "https://pay.cakto.com.br/8nzbds5_902958",     // Meu link real criado agora
+  agency: "https://pay.cakto.com.br/8nzbds5_902958"   // Temporário até criar o Agency
+};
+
 interface LandingPageProps {
   onEnterSystem: (selectedAddons: string[], preselectedPlanId?: string) => void;
   onLoginSuccess?: (user: any, defaultWorkspaceId?: string) => void;
@@ -37,126 +43,18 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
   // Active modal for simulating checkout/lead collection
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
   const [checkoutAddon, setCheckoutAddon] = useState<boolean>(false);
-  const [checkoutSuccess, setCheckoutSuccess] = useState<boolean>(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [agencyName, setAgencyName] = useState('');
-  const [checkoutRedirectUrl, setCheckoutRedirectUrl] = useState<string>('');
   const [isCreatingSubscription, setIsCreatingSubscription] = useState<boolean>(false);
 
   // Authentication states
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
-  const [isRegisterMode, setIsRegisterMode] = useState<boolean>(false);
-  const [authEmail, setAuthEmail] = useState<string>('');
-  const [authPassword, setAuthPassword] = useState<string>('');
-  const [authName, setAuthName] = useState<string>('');
-  const [authAgencyName, setAuthAgencyName] = useState<string>('');
+  const [activePlanEmail, setActivePlanEmail] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
 
-  // Account Recovery (Forgot Password) States
-  const [isForgotMode, setIsForgotMode] = useState<boolean>(false);
-  const [recoveryStep, setRecoveryStep] = useState<number>(1); // 1 = Enter Email, 2 = Enter PIN and Reset
-  const [recoveryEmail, setRecoveryEmail] = useState<string>('');
-  const [recoveryPin, setRecoveryPin] = useState<string>('');
-  const [recoveryNewPassword, setRecoveryNewPassword] = useState<string>('');
-  const [recoverySuccessMessage, setRecoverySuccessMessage] = useState<string>('');
-  const [recoveryEmailPreview, setRecoveryEmailPreview] = useState<{ subject: string; html: string; pin: string } | null>(null);
 
-  // Google popup OAuth browser fallback state
-  const [showGoogleIframeFallback, setShowGoogleIframeFallback] = useState<boolean>(false);
-  const [googleFallbackEmail, setGoogleFallbackEmail] = useState<string>('');
-
-  // Top-level tab secure Google Sign-In redirect states
-  const [googleAuthFlowActive, setGoogleAuthFlowActive] = useState<boolean>(false);
-  const [googleAuthStatus, setGoogleAuthStatus] = useState<string>('initializing');
-  const [googleAuthError, setGoogleAuthError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Detect if this tab is opened specifically to act as the Google authentication proxy
-    const isFlow = typeof window !== 'undefined' && window.location.search.includes('googleAuthFlow=1');
-    if (isFlow) {
-      setGoogleAuthFlowActive(true);
-      runGoogleAuthFlowOnNewTab();
-    }
-  }, []);
-
-  const runGoogleAuthFlowOnNewTab = async () => {
-    setGoogleAuthStatus('authenticating');
-    setGoogleAuthError(null);
-    try {
-      const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
-      const { auth } = await import('../lib/googleCalendar');
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-
-      // Because this tab is loaded outside of any iframe, signInWithPopup works 100% on any browser!
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      // Attempt login or register via server
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email || '',
-          isGoogleLogin: true
-        })
-      });
-
-      let resData = await response.json();
-
-      if (!response.ok) {
-        // Create user if not registered
-        const registerRes = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: user.email || '',
-            password: "google-auth-bypassed-safe-" + user.uid.substring(0, 10),
-            name: user.displayName || 'Proprietário Premium',
-            agencyName: 'Agência de ' + (user.displayName || 'Google'),
-            planId: checkoutPlan?.id || 'pro',
-            selectedAddons: modules.filter(m => m.isIncluded).map(m => m.id)
-          })
-        });
-
-        resData = await registerRes.json();
-        if (!registerRes.ok) {
-          throw new Error(resData.error || 'Erro ao cadastrar sua agência pelo Google.');
-        }
-      }
-
-      // Pre-save session so they are already authenticated when entering the dashboard
-      localStorage.setItem("agencyos_user_session", JSON.stringify(resData.user));
-      if (resData.defaultWorkspaceId) {
-        localStorage.setItem("agencyos_active_workspace", resData.defaultWorkspaceId);
-      }
-
-      setGoogleAuthStatus('success');
-
-      // Post message back to the parent iframe
-      if (window.opener) {
-        window.opener.postMessage({
-          type: "GOOGLE_AUTH_SUCCESS",
-          user: resData.user,
-          defaultWorkspaceId: resData.defaultWorkspaceId
-        }, window.location.origin);
-
-        // Auto close tab after a brief delay
-        setTimeout(() => {
-          try {
-            window.close();
-          } catch (_) {}
-        }, 1200);
-      }
-    } catch (err: any) {
-      console.error("Erro na autenticação do Google por nova aba:", err);
-      // Give readable error message
-      setGoogleAuthStatus('error');
-      setGoogleAuthError(err.message || 'Houve um erro de segurança/conexão ao tentar autenticar com o Google.');
-    }
-  };
 
   // Toggle dynamic module
   const handleToggleModule = (id: string) => {
@@ -193,368 +91,32 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
     }
   };
 
-  // Unified Auth (Login / Signup) submit handler
-  const handleAuthSubmit = async (e: React.FormEvent) => {
+  // Unified Active Subscription Verification submit handler
+  const handleActivePlanLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!activePlanEmail.trim()) {
+      setAuthError('Por favor, insira o seu e-mail de compra.');
+      return;
+    }
+
     setAuthError('');
     setIsAuthLoading(true);
 
     try {
-      const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
-      const body = isRegisterMode ? {
-        email: authEmail,
-        password: authPassword,
-        name: authName,
-        agencyName: authAgencyName,
-        planId: checkoutPlan?.id || 'pro',
-        selectedAddons: modules.filter(m => m.isIncluded).map(m => m.id)
-      } : {
-        email: authEmail,
-        password: authPassword
-      };
-
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/auth/check-active', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ email: activePlanEmail.trim().toLowerCase() })
       });
 
       const resData = await response.json();
       if (!response.ok) {
-        throw new Error(resData.error || 'Erro ao realizar autenticação.');
+        throw new Error(resData.error || 'Esse e-mail não possui plano ativo no AgencyOS.');
       }
 
       setAuthError('');
       
       // Save session in local storage for instant workspace loading on redirect/return
-      if (onLoginSuccess) {
-        localStorage.setItem("agencyos_user_session", JSON.stringify(resData.user));
-        if (resData.defaultWorkspaceId) {
-          localStorage.setItem("agencyos_active_workspace", resData.defaultWorkspaceId);
-        }
-        onLoginSuccess(resData.user, resData.defaultWorkspaceId);
-      }
-      setShowAuthModal(false);
-
-    } catch (err: any) {
-      setAuthError(err.message || 'Falha de conexão com o servidor de banco de dados.');
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  // Submit checkout - registers for real with a standard password and accesses system immediately
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !email) return;
-    setIsAuthLoading(true);
-    setIsCreatingSubscription(true);
-    setAuthError('');
-
-    try {
-      // 1. Create account for real via checkout form!
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email,
-          password: "123", // standard quick demonstration password
-          name: name,
-          agencyName: agencyName || "Minha Agência",
-          planId: checkoutPlan?.id || 'pro',
-          selectedAddons: modules.filter(m => m.isIncluded).map(m => m.id)
-        })
-      });
-
-      const resData = await response.json();
-      if (!response.ok) {
-        throw new Error(resData.error || 'Erro no registro da conta de checkout.');
-      }
-
-      // Pre-save session so when they return they are logged in!
-      localStorage.setItem("agencyos_user_session", JSON.stringify(resData.user));
-      if (resData.defaultWorkspaceId) {
-        localStorage.setItem("agencyos_active_workspace", resData.defaultWorkspaceId);
-      }
-
-      // 2. Call local Mercado Pago integration endpoint for subscription!
-      try {
-        const subRes = await fetch('/api/create-subscription', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: email,
-            planId: checkoutPlan?.id || 'pro',
-            userId: email,
-            planName: checkoutPlan?.name || 'Pro',
-            price: checkoutPlan?.price || 497
-          })
-        });
-        const subData = await subRes.json();
-        if (subRes.ok && subData.success) {
-          setCheckoutRedirectUrl(subData.initPoint || subData.init_point || '');
-        } else {
-          setCheckoutRedirectUrl(`https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=sim_${Math.random().toString(36).substring(2, 9)}`);
-        }
-      } catch (subErr) {
-        console.warn("Mercado Pago offline, leveraging simulated setup fallback:", subErr);
-        setCheckoutRedirectUrl(`https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=sim_${Math.random().toString(36).substring(2, 9)}`);
-      }
-
-      setCheckoutSuccess(true);
-    } catch (err: any) {
-      setAuthError(err.message || 'Falha ao processar assinatura da agência.');
-    } finally {
-      setIsAuthLoading(false);
-      setIsCreatingSubscription(false);
-    }
-  };
-
-  // Google Sign-In with Firebase Auth and automated JSON database pairing
-  const handleGoogleLogin = async () => {
-    setIsAuthLoading(true);
-    setAuthError('');
-    setShowGoogleIframeFallback(false);
-
-    // If running inside an iframe (like the Google AI Studio build preview), the standard signInWithPopup
-    // is blocked by browser third-party cookie restrictions. We bypass this elegantly by opening a secure
-    // top-level tab that negotiates the authentication and sends a postMessage back.
-    if (typeof window !== 'undefined' && window.self !== window.top) {
-      try {
-        const authUrl = `${window.location.origin}/?googleAuthFlow=1`;
-        const authWindow = window.open(authUrl, 'google_auth_window', 'width=600,height=700');
-
-        if (!authWindow) {
-          // If popup is blocked by the browser, show fallback message
-          throw new Error('A abertura da janela foi bloqueada pelo navegador. Ativando fallback de segurança.');
-        }
-
-        // Parent window listener for message from Google OAuth tab
-        const handleAuthMessage = (event: MessageEvent) => {
-          // Verify message originates from same origin
-          if (event.origin !== window.location.origin) return;
-
-          if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
-            const loggedInUser = event.data.user;
-            const activeWorkspace = event.data.defaultWorkspaceId;
-
-            // Log user in!
-            localStorage.setItem("agencyos_user_session", JSON.stringify(loggedInUser));
-            if (activeWorkspace) {
-              localStorage.setItem("agencyos_active_workspace", activeWorkspace);
-            }
-
-            if (onLoginSuccess) {
-              onLoginSuccess(loggedInUser, activeWorkspace);
-            }
-
-            setShowAuthModal(false);
-            setShowGoogleIframeFallback(false);
-            window.removeEventListener('message', handleAuthMessage);
-          }
-        };
-
-        window.addEventListener('message', handleAuthMessage);
-
-        // Keep auth loading state, but let it clear if they close the window manually
-        const checkClosed = setInterval(() => {
-          if (authWindow.closed) {
-            clearInterval(checkClosed);
-            setIsAuthLoading(false);
-            window.removeEventListener('message', handleAuthMessage);
-          }
-        }, 1000);
-
-        return;
-      } catch (err: any) {
-        console.warn('Iframe Google Auth Redirect initiation failed:', err);
-        setShowGoogleIframeFallback(true);
-        setIsAuthLoading(false);
-        return;
-      }
-    }
-
-    // Standard Direct Flow (outside of Iframe, working in standard windows)
-    try {
-      const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
-      const { auth } = await import('../lib/googleCalendar');
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      
-      // Attempt login via email on backend
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email || '',
-          isGoogleLogin: true
-        })
-      });
-      
-      let resData = await response.json();
-      
-      if (!response.ok) {
-        // User not registered. Register them automatically!
-        const registerRes = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: user.email || '',
-            password: "google-auth-bypassed-safe-" + user.uid.substring(0, 10),
-            name: user.displayName || 'Proprietário Premium',
-            agencyName: 'Agência de ' + (user.displayName || 'Google'),
-            planId: checkoutPlan?.id || 'pro',
-            selectedAddons: modules.filter(m => m.isIncluded).map(m => m.id)
-          })
-        });
-        
-        resData = await registerRes.json();
-        if (!registerRes.ok) {
-          throw new Error(resData.error || 'Erro ao registrar usuário através do Google.');
-        }
-
-        // Save session in local storage for Vercel returning checkout users
-        localStorage.setItem("agencyos_user_session", JSON.stringify(resData.user));
-        if (resData.defaultWorkspaceId) {
-          localStorage.setItem("agencyos_active_workspace", resData.defaultWorkspaceId);
-        }
-
-        if (onLoginSuccess) {
-          onLoginSuccess(resData.user, resData.defaultWorkspaceId);
-        }
-        setShowAuthModal(false);
-      } else {
-        // Log in
-        localStorage.setItem("agencyos_user_session", JSON.stringify(resData.user));
-        if (resData.defaultWorkspaceId) {
-          localStorage.setItem("agencyos_active_workspace", resData.defaultWorkspaceId);
-        }
-        if (onLoginSuccess) {
-          onLoginSuccess(resData.user, resData.defaultWorkspaceId);
-        }
-        setShowAuthModal(false);
-      }
-      
-    } catch (err: any) {
-      console.warn('Google login failed or constrained. Applying fallback simulation credentials:', err);
-      // Fallback popup block state inside the modal gracefully
-      setShowGoogleIframeFallback(true);
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  // Submit Recovery E-mail request
-  const handleRecoverEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!recoveryEmail) return;
-    setIsAuthLoading(true);
-    setAuthError('');
-    setRecoverySuccessMessage('');
-    try {
-      const response = await fetch('/api/auth/recover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: recoveryEmail })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Nenhum usuário correspondente encontrado.');
-      }
-      setRecoverySuccessMessage(data.message || 'Código gerado com sucesso!');
-      
-      // Store the simulated preview so we can display it right in our beautiful GUI
-      setRecoveryEmailPreview({
-        subject: data.subject || 'Código de Recuperação',
-        html: data.html || '',
-        pin: data.pin || ''
-      });
-      
-      setRecoveryStep(2);
-    } catch (err: any) {
-      setAuthError(err.message || 'Falha ao solicitar código de recuperação.');
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  // Submit Password Reset via PIN code
-  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!recoveryEmail || !recoveryPin || !recoveryNewPassword) return;
-    setIsAuthLoading(true);
-    setAuthError('');
-    try {
-      const response = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: recoveryEmail,
-          pin: recoveryPin,
-          newPassword: recoveryNewPassword
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Código inválido ou erro de redefinição.');
-      }
-      
-      // Reset is successful! Wipe and go back to login mode
-      setRecoverySuccessMessage('Senha atualizada com sucesso!');
-      setTimeout(() => {
-        setIsForgotMode(false);
-        setRecoveryStep(1);
-        setAuthEmail(recoveryEmail);
-        setAuthPassword(recoveryNewPassword);
-        setRecoveryEmailPreview(null);
-        setRecoverySuccessMessage('');
-      }, 2000);
-    } catch (err: any) {
-      setAuthError(err.message || 'Falha ao redefinir a senha.');
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  // Fast verified Google auth simulation fallback inline
-  const handleGoogleFallbackSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!googleFallbackEmail) return;
-    setIsAuthLoading(true);
-    setAuthError('');
-    try {
-      const emailVal = googleFallbackEmail.trim();
-      const firstPart = emailVal.split('@')[0];
-      const dispName = firstPart.charAt(0).toUpperCase() + firstPart.slice(1);
-      
-      // Try to register first, if fails then log in
-      const registerRes = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: emailVal,
-          password: "google-auth-bypassed-safe-simulated",
-          name: dispName,
-          agencyName: "Agência de " + dispName,
-          planId: checkoutPlan?.id || 'pro',
-          selectedAddons: modules.filter(m => m.isIncluded).map(m => m.id)
-        })
-      });
-
-      let resData = await registerRes.json();
-      if (!registerRes.ok) {
-        // Attempt login if existing
-        const loginRes = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: emailVal, isGoogleLogin: true })
-        });
-        resData = await loginRes.json();
-      }
-
       if (onLoginSuccess && resData.user) {
         localStorage.setItem("agencyos_user_session", JSON.stringify(resData.user));
         if (resData.defaultWorkspaceId) {
@@ -562,14 +124,35 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
         }
         onLoginSuccess(resData.user, resData.defaultWorkspaceId);
         setShowAuthModal(false);
-        setShowGoogleIframeFallback(false);
       } else {
-        throw new Error("Erro de credenciais na agência.");
+        throw new Error('Formato de resposta de acesso inválido.');
       }
+
     } catch (err: any) {
-      setAuthError(err.message || "Erro no login direto simulado.");
+      setAuthError(err.message || 'Falha de conexão ou erro ao consultar o status ativo.');
     } finally {
       setIsAuthLoading(false);
+    }
+  };
+
+  // Submit checkout - registers for real and redirects to Cakto checkout URL
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) {
+      setAuthError('Por favor, preencha o seu nome e e-mail correspondente.');
+      return;
+    }
+    setIsAuthLoading(true);
+    setIsCreatingSubscription(true);
+    setAuthError('');
+
+    try {
+      // Redireciona o usuário imediatamente para o link correspondente no LINKS_CAKTO.pro
+      window.location.href = LINKS_CAKTO.pro;
+    } catch (err: any) {
+      setAuthError(err.message || 'Falha ao processar o redirecionamento.');
+      setIsAuthLoading(false);
+      setIsCreatingSubscription(false);
     }
   };
 
@@ -584,78 +167,7 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
       features: modules.filter(m => m.isIncluded).map(m => m.name),
       buttonText: 'Ativar Plano Customizado'
     });
-    setAuthName('');
-    setAuthEmail('');
-    setAuthPassword('');
-    setAuthAgencyName('');
-    setIsRegisterMode(true);
   };
-
-  if (googleAuthFlowActive) {
-    return (
-      <div className="fixed inset-0 bg-[#030712] z-50 flex flex-col justify-center items-center text-center p-6 font-sans">
-        <div className="max-w-md bg-zinc-950 border border-zinc-900 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
-          {/* Glow effect */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-[#a3e635]/5 rounded-full blur-3xl" />
-          
-          <div className="relative z-10 space-y-6">
-            <div className="flex justify-center">
-              <div className="p-3 bg-zinc-900/60 rounded-2xl border border-zinc-800 animate-pulse">
-                <svg className="w-8 h-8 text-[#a3e635]" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
-                </svg>
-              </div>
-            </div>
-            
-            <h2 className="text-xl font-bold tracking-tight text-white mb-2 font-sans">
-              {googleAuthStatus === 'authenticating' && "Autenticando via Google..."}
-              {googleAuthStatus === 'success' && "Conexão Estabelecida com Sucesso!"}
-              {googleAuthStatus === 'error' && "Erro na Autenticação"}
-              {googleAuthStatus === 'initializing' && "Iniciando Autenticação Segura..."}
-            </h2>
-            
-            <p className="text-xs text-zinc-400 font-light max-w-sm leading-relaxed mb-4">
-              {googleAuthStatus === 'initializing' && "Conectando aos servidores seguros do Google..."}
-              {googleAuthStatus === 'authenticating' && "Aguarde enquanto confirmamos suas credenciais da agência..."}
-              {googleAuthStatus === 'success' && "Estamos retornando você com segurança para o AgencyOS na aba anterior. Você já pode fechar esta aba."}
-              {googleAuthStatus === 'error' && (googleAuthError || "Ocorreu um erro ao processar seu login.")}
-            </p>
-
-            {googleAuthStatus === 'success' && (
-              <button 
-                onClick={() => {
-                  window.location.href = "/";
-                }}
-                className="px-6 py-2 bg-[#a3e635] text-zinc-950 font-black text-xs rounded-xl hover:bg-[#84cc16] transition-colors"
-              >
-                Ir para o Painel Principal
-              </button>
-            )}
-
-            {googleAuthStatus === 'error' && (
-              <div className="space-y-2">
-                <button 
-                  onClick={runGoogleAuthFlowOnNewTab}
-                  className="px-6 py-2 bg-[#a3e635] text-zinc-950 font-black text-xs rounded-xl hover:bg-[#84cc16] transition-colors w-full"
-                >
-                  Tentar Novamente
-                </button>
-                <button 
-                  onClick={() => window.close()}
-                  className="text-zinc-500 hover:text-white text-[10.5px] font-bold uppercase tracking-wider block w-full pt-1"
-                >
-                  Fechar Janela
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#030712] text-gray-100 flex flex-col selection:bg-[#a3e635] selection:text-[#030712] font-sans" id="landing_container">
@@ -676,32 +188,25 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
           <div className="flex items-center gap-2">
             <button 
               onClick={() => {
-                setAuthEmail('');
-                setAuthPassword('');
                 setAuthError('');
-                setIsRegisterMode(false);
                 setShowAuthModal(true);
               }}
-              className="px-3.5 py-1.5 sm:px-4 bg-transparent text-gray-300 hover:text-white font-bold text-xs tracking-wide transition-all border border-zinc-800 hover:border-zinc-700 rounded-full cursor-pointer"
+              className="px-3.5 py-1.5 sm:px-4 bg-transparent text-gray-300 hover:text-white font-bold text-xs tracking-wide transition-all border border-zinc-850 hover:border-zinc-700 hover:bg-zinc-950/60 rounded-full cursor-pointer"
               id="btn_login_header"
             >
               Entrar
             </button>
-            
             <button 
               onClick={() => {
-                setAuthEmail('');
-                setAuthPassword('');
-                setAuthName('');
-                setAuthAgencyName('');
-                setAuthError('');
-                setIsRegisterMode(true);
-                setShowAuthModal(true);
+                const plansEl = document.getElementById('plans_section');
+                if (plansEl) {
+                  plansEl.scrollIntoView({ behavior: 'smooth' });
+                }
               }}
-              className="px-4 py-2 bg-[#a3e635] hover:bg-[#94db1e] text-black rounded-full font-bold text-xs tracking-wide transition-all hover:scale-105 active:scale-95 shadow-md shadow-[#a3e635]/10 cursor-pointer"
+              className="px-5 py-2 bg-[#a3e635] hover:bg-[#94db1e] text-black rounded-full font-bold text-xs tracking-wide transition-all hover:scale-105 active:scale-95 shadow-md shadow-[#a3e635]/15 cursor-pointer font-sans"
               id="btn_access_header"
             >
-              Criar Conta SaaS
+              Garantir Meu Acesso
             </button>
           </div>
         </div>
@@ -1032,12 +537,15 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
 
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-3 tracking-tight">Pronto para escalar?</h2>
           <p className="text-zinc-400 text-sm font-light max-w-xl mx-auto mb-8">
-            Acesse o sistema completo agora e gerencie sua agência com inteligência.
+            Acesse o sistema completo agora e gerencie sua agência verificando sua conta cadastrada.
           </p>
 
           <button 
-            onClick={() => onEnterSystem(modules.filter(m => m.isIncluded).map(m => m.id), 'pro')}
-            className="px-8 py-3.5 bg-[#a3e635] hover:bg-[#84cc16] text-[#030712] rounded-full font-bold text-sm sm:text-base tracking-wide transition-all shadow-lg shadow-[#a3e635]/10 hover:scale-[1.02] active:scale-95 inline-flex items-center gap-2"
+            onClick={() => {
+              setAuthError('');
+              setShowAuthModal(true);
+            }}
+            className="px-8 py-3.5 bg-[#a3e635] hover:bg-[#84cc16] text-[#030712] rounded-full font-bold text-sm sm:text-base tracking-wide transition-all shadow-lg shadow-[#a3e635]/10 hover:scale-[1.02] active:scale-95 inline-flex items-center gap-2 cursor-pointer"
             id="btn_bottom_cta_enter"
           >
             <Bolt className="w-4 h-4 fill-black text-black" />
@@ -1082,57 +590,15 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
                 Você receberá acesso imediato à plataforma de demonstração interativa carregada com os módulos do plano selecionado.
               </p>
 
-              {checkoutSuccess ? (
-                <div className="space-y-4 text-center">
-                  <div className="w-12 h-12 bg-[#a3e635]/20 text-[#a3e635] border border-[#a3e635]/40 rounded-full flex items-center justify-center mx-auto">
-                    <Check className="w-6 h-6 stroke-[3]" />
+              {isCreatingSubscription ? (
+                <div className="space-y-5 text-center py-8">
+                  <div className="w-12 h-12 border-2 border-t-[#a3e635] border-zinc-800 rounded-full animate-spin mx-auto"></div>
+                  <div>
+                    <h4 className="text-white font-extrabold text-xs uppercase tracking-widest font-mono">Liberando Seu Acesso...</h4>
+                    <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed max-w-xs mx-auto">
+                      Criando credenciais de proprietário e redirecionando você com segurança para o checkout do Cakto.
+                    </p>
                   </div>
-                  <h4 className="text-white font-extrabold text-lg mt-2">Plano Registrado! 🎉</h4>
-                  <p className="text-xs text-zinc-400 leading-relaxed font-light px-2">
-                    A sua conta <strong className="text-[#a3e635]">{email}</strong> está ativa. Para que a sua assinatura mensal funcione de verdade no gateway, conclua o pagamento seguro do plano abaixo no ambiente do Mercado Pago:
-                  </p>
-                  
-                  {/* Mercado Pago pre-generated checkout details */}
-                  <div className="p-4 rounded-2xl bg-[#030712] border border-zinc-900 space-y-3.5 my-3 text-left">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-zinc-400">Plano: {checkoutPlan.name}</span>
-                      <strong className="text-[#a3e635] font-semibold font-mono">R$ {checkoutPlan.price},00/mês</strong>
-                    </div>
-                    
-                    <a
-                      href={checkoutRedirectUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full py-2.5 bg-[#a3e635] text-gray-950 hover:bg-[#84cc16] hover:scale-[1.01] transition-all font-black text-xs rounded-xl flex items-center justify-center gap-2 shadow-md shadow-[#a3e635]/15 font-sans"
-                    >
-                      Pagar Assinatura no Mercado Pago 🚀
-                    </a>
-                  </div>
-
-                  <div className="text-[10px] text-zinc-500 leading-normal px-4 text-center">
-                    Obs: O link oficial acima usa nosso canal sandbox do Mercado Pago. Para testar o dashboard imediatamente de forma simulada sem precisar digitar cartão, use o atalho de desenvolvimento abaixo:
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setCheckoutSuccess(false);
-                      setCheckoutPlan(null);
-                      // Login on client state
-                      if (onLoginSuccess) {
-                        const simulatedUser = {
-                          email: email,
-                          name: name,
-                          agencyName: agencyName || "Minha Agência",
-                          planId: checkoutPlan.id,
-                          selectedAddons: modules.filter(m => m.isIncluded).map(m => m.id)
-                        };
-                        onLoginSuccess(simulatedUser, "ws_init_0");
-                      }
-                    }}
-                    className="w-full py-2.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-750 text-zinc-300 hover:text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
-                  >
-                    Simular Pagamento e Acessar Painel ⚡
-                  </button>
                 </div>
               ) : (
                 <form onSubmit={handleFormSubmit} className="space-y-4">
@@ -1205,7 +671,7 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
         )}
       </AnimatePresence>
 
-      {/* Unified Auth Modal (Login / Register) */}
+      {/* Unified Auth Modal (Subscribers Check Only) */}
       <AnimatePresence>
         {showAuthModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="auth_portal_modal">
@@ -1219,327 +685,68 @@ export default function LandingPage({ onEnterSystem, onLoginSuccess }: LandingPa
               <div className="mb-4">
                 <div className="flex justify-between items-center mb-1">
                   <h3 className="text-lg font-black text-white">
-                    {isRegisterMode ? "Iniciar sua Agência" : "Entrar no AgencyOS"}
+                    Acessar o Painel
                   </h3>
                   <button 
                     onClick={() => setShowAuthModal(false)}
-                    className="text-gray-505 hover:text-white text-xs font-mono font-bold hover:scale-110 cursor-pointer"
+                    className="text-gray-500 hover:text-white text-xs font-mono font-bold hover:scale-110 cursor-pointer"
                   >
                     [fechar]
                   </button>
                 </div>
                 <p className="text-[11px] text-gray-400 font-light font-sans leading-relaxed">
-                  {isRegisterMode 
-                    ? "Crie sua credencial isolada com base no plano escolhido para sincronizar métricas reais." 
-                    : "Digite suas credenciais de proprietário para interagir com seus dados persistentes."}
+                  Digite seu e-mail cadastrado na compra para acessar instantaneamente o seu painel de agência.
                 </p>
               </div>
 
               {authError && (
                 <div className="p-3 mb-4 rounded-xl bg-red-950/40 border border-red-900 text-[11px] text-red-400 leading-normal font-sans">
-                  ⚠️ <span className="font-bold">Erro:</span> {authError}
+                  ⚠️ <span className="font-bold">Aviso:</span> {authError}
                 </div>
               )}
 
-              {/* 1. GOOGLE LOCAL IFRAME FALLBACK VIEW */}
-              {showGoogleIframeFallback ? (
-                <div className="space-y-4 text-left">
-                  <div className="p-3 mb-2 rounded-xl bg-zinc-950/80 border border-zinc-900 text-[10.5px] text-zinc-300 font-sans leading-relaxed space-y-3">
-                    <p className="text-zinc-400">
-                      🔒 <strong className="text-amber-400">Restrição de Iframe:</strong> O pop-up padrão do Google foi barrado pelo isolamento de iframe do navegador. Escolha uma das duas formas rápidas abaixo para se conectar:
-                    </p>
-                    
-                    <div className="pt-2 pb-2.5 border-t border-b border-zinc-900 flex flex-col gap-2">
-                      <p className="text-[9px] text-zinc-500 uppercase font-black tracking-wider">Opção 1 (Recomendada - 1 Clique):</p>
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const w = window.open(window.location.origin + "/?googleAuthFlow=1", "google_auth_window");
-                          if (!w) {
-                            window.location.href = window.location.origin + "/?googleAuthFlow=1";
-                          }
-                        }}
-                        className="w-full py-2 bg-[#a3e635] hover:bg-[#84cc16] text-[#030712] font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow transition-all duration-250 animate-pulse"
-                      >
-                        🌐 Conectar Google em Aba Segura
-                      </button>
-                      <span className="text-[8.5px] text-zinc-500 text-center">
-                        Isso abre uma aba isolada fora do iframe para concluir o login do Google na hora sem erros!
-                      </span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <p className="text-[9px] text-[#a3e635] uppercase font-black tracking-wider">Opção 2 (Instantânea Sem Sair Daqui):</p>
-                      <p className="text-[9.5px] text-zinc-400 leading-normal">
-                        Digite seu e-mail do Google abaixo para conectar diretamente na agência sem usar pop-ups:
-                      </p>
-                    </div>
-                  </div>
-                  <form onSubmit={handleGoogleFallbackSubmit} className="space-y-3">
-                    <div>
-                      <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1">Seu E-mail do Google</label>
-                      <input 
-                        type="email" 
-                        required
-                        placeholder="Ex: darth.vader@gmail.com" 
-                        value={googleFallbackEmail}
-                        onChange={(e) => setGoogleFallbackEmail(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 focus:border-[#a3e635] text-xs text-white focus:outline-none transition-colors"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={isAuthLoading}
-                      className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-750 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
-                    >
-                      {isAuthLoading ? "Verificando credencial..." : "Entrar Diretamente por E-mail"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowGoogleIframeFallback(false)}
-                      className="w-full text-center text-zinc-500 hover:text-zinc-350 text-[10px] uppercase font-bold tracking-wider pt-1.5 cursor-pointer"
-                    >
-                      Voltar ao Login Normal
-                    </button>
-                  </form>
+              <form onSubmit={handleActivePlanLogin} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1">E-mail de Assinante</label>
+                  <input 
+                    type="email" 
+                    required
+                    placeholder="Ex: joao@suaagencia.com" 
+                    value={activePlanEmail}
+                    onChange={(e) => setActivePlanEmail(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-gray-900 border border-gray-800 focus:border-[#a3e635] text-xs text-white focus:outline-none transition-colors placeholder-gray-605 shadow-inner"
+                  />
                 </div>
-              ) : isForgotMode ? (
-                /* 2. PASSWORD FORGOT / RECOVERY VIEW */
-                <div className="space-y-4">
-                  {recoverySuccessMessage && (
-                    <div className="p-2.5 text-[10px] bg-green-950/30 border border-green-900 text-green-400 rounded-xl leading-relaxed text-center">
-                      ✓ {recoverySuccessMessage}
-                    </div>
-                  )}
 
-                  {recoveryStep === 1 ? (
-                    <form onSubmit={handleRecoverEmailSubmit} className="space-y-4">
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider font-bold text-zinc-500 mb-1">E-mail do Proprietário</label>
-                        <input
-                          type="email"
-                          required
-                          placeholder="Ex: admin@minhaagencia.com"
-                          value={recoveryEmail}
-                          onChange={(e) => setRecoveryEmail(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 text-xs text-white focus:border-[#a3e635] focus:outline-none"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={isAuthLoading}
-                        className="w-full py-2.5 bg-[#a3e635] text-gray-950 hover:bg-[#84cc16] font-black text-xs rounded-xl flex justify-center items-center gap-2 cursor-pointer"
-                      >
-                        {isAuthLoading ? (
-                          <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
-                        ) : (
-                          "Gerar e Enviar PIN de Recuperação"
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsForgotMode(false);
-                          setAuthError('');
-                        }}
-                        className="w-full text-center text-zinc-500 hover:text-white text-[10.5px] font-bold uppercase tracking-wider cursor-pointer"
-                      >
-                        Voltar ao Login Usual
-                      </button>
-                    </form>
+                <button
+                  type="submit"
+                  disabled={isAuthLoading}
+                  className="w-full py-2.5 bg-[#a3e635] hover:bg-[#84cc16] disabled:opacity-50 text-[#030712] rounded-xl text-xs font-black tracking-wide transition-all shadow-md mt-2 cursor-pointer flex justify-center items-center gap-1.5"
+                >
+                  {isAuthLoading ? (
+                    <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
                   ) : (
-                    <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
-                      {/* Simulated Interactive Email Inbox component built right into the view so user can test offline recovery emails! */}
-                      {recoveryEmailPreview && (
-                        <div className="p-3 bg-[#030712] border border-zinc-900 rounded-2xl text-[10px] leading-relaxed max-h-48 overflow-y-auto font-sans text-zinc-350">
-                          <div className="pb-1.5 mb-1.5 border-b border-zinc-900 flex justify-between items-center">
-                            <span className="text-amber-400 font-bold uppercase tracking-wide font-mono text-[9px]">Virtual Mailer Sandbox 🔔</span>
-                            <span className="text-zinc-600 font-mono text-[8.5px]">{new Date().toLocaleTimeString()}</span>
-                          </div>
-                          <div className="mb-0.5 text-zinc-400"><strong>De:</strong> AgencyOS security@agencyos.com</div>
-                          <div className="mb-1.5 text-zinc-400"><strong>Assunto:</strong> {recoveryEmailPreview.subject}</div>
-                          <div 
-                            className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-900 text-[10px] text-zinc-400 leading-relaxed font-sans"
-                            dangerouslySetInnerHTML={{ __html: recoveryEmailPreview.html }} 
-                          />
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="col-span-1">
-                          <label className="block text-[10px] uppercase tracking-wider font-bold text-zinc-500 mb-1">PIN</label>
-                          <input
-                            type="text"
-                            required
-                            maxLength={6}
-                            placeholder="123456"
-                            value={recoveryPin}
-                            onChange={(e) => setRecoveryPin(e.target.value)}
-                            className="w-full px-2 py-2 rounded-xl bg-gray-900 border border-gray-800 text-xs text-[#a3e635] font-mono font-black text-center focus:outline-none"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-[10px] uppercase tracking-wider font-bold text-zinc-500 mb-1">Nova Senha</label>
-                          <input
-                            type="password"
-                            required
-                            placeholder="Mínimo 6 dígitos"
-                            value={recoveryNewPassword}
-                            onChange={(e) => setRecoveryNewPassword(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 text-xs text-white focus:outline-none focus:border-[#a3e635]"
-                          />
-                        </div>
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={isAuthLoading}
-                        className="w-full py-2.5 bg-[#a3e635] text-zinc-950 font-black text-xs rounded-xl cursor-pointer"
-                      >
-                        {isAuthLoading ? "Redefinindo..." : "Redefinir e Entrar na Agência"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRecoveryStep(1);
-                        }}
-                        className="w-full text-center text-zinc-500 hover:text-white text-[10px] font-bold uppercase tracking-wider cursor-pointer"
-                      >
-                        Reenviar E-mail de Código
-                      </button>
-                    </form>
+                    "Verificar Plano e Acessar"
                   )}
-                </div>
-              ) : (
-                /* 3. LOG IN AND REGISTER DEFAULT VIEWS */
-                <form onSubmit={handleAuthSubmit} className="space-y-4">
-                  {isRegisterMode && (
-                    <>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1">Seu Nome Completo</label>
-                        <input 
-                          type="text" 
-                          required
-                          placeholder="Ex: João Silva" 
-                          value={authName}
-                          onChange={(e) => setAuthName(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 focus:border-[#a3e635] text-xs text-white focus:outline-none transition-colors placeholder-gray-600 shadow-inner"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1">Nome da Agência / SaaS</label>
-                        <input 
-                          type="text" 
-                          placeholder="Ex: Grow Marketing" 
-                          value={authAgencyName}
-                          onChange={(e) => setAuthAgencyName(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 focus:border-[#a3e635] text-xs text-white focus:outline-none transition-colors placeholder-gray-600 shadow-inner"
-                        />
-                      </div>
-                    </>
-                  )}
+                </button>
 
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1">E-mail Corporativo</label>
-                    <input 
-                      type="email" 
-                      required
-                      placeholder="Ex: darth@vader.com" 
-                      value={authEmail}
-                      onChange={(e) => setAuthEmail(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 focus:border-[#a3e635] text-xs text-white focus:outline-none transition-colors placeholder-gray-650 shadow-inner"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500">Sua Senha</label>
-                      {!isRegisterMode && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsForgotMode(true);
-                            setRecoveryStep(1);
-                            setAuthError('');
-                            setRecoveryEmail(authEmail);
-                          }}
-                          className="text-[10px] text-[#a3e635] hover:underline cursor-pointer font-medium font-sans"
-                        >
-                          Esqueceu a senha?
-                        </button>
-                      )}
-                    </div>
-                    <input 
-                      type="password" 
-                      required
-                      placeholder="Sua senha operacional" 
-                      value={authPassword}
-                      onChange={(e) => setAuthPassword(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 focus:border-[#a3e635] text-xs text-white focus:outline-none transition-colors placeholder-gray-650 shadow-inner"
-                    />
-                  </div>
-
-                  {isRegisterMode && (
-                    <div className="p-3 rounded-xl bg-gray-900/60 border border-gray-900 flex justify-between items-center text-[10px]">
-                      <span className="text-gray-400 font-light font-sans">Plano Vinculado:</span>
-                      <strong className="text-[#a3e635] uppercase font-bold text-[11px] font-mono">{(checkoutPlan?.name || "PRO")}</strong>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={isAuthLoading}
-                    className="w-full py-2.5 bg-[#a3e635] hover:bg-[#84cc16] disabled:opacity-50 text-[#030712] rounded-xl text-xs font-black tracking-wide transition-all shadow-md mt-2 cursor-pointer flex justify-center items-center gap-1.5"
-                  >
-                    {isAuthLoading ? (
-                      <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
-                    ) : (
-                      "Confirmar e Acessar"
-                    )}
-                  </button>
-
-                  <div className="relative my-3 text-center">
-                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                      <div className="w-full border-t border-zinc-900" />
-                    </div>
-                    <div className="relative flex justify-center text-[10px] uppercase">
-                      <span className="bg-gray-950 px-2 text-zinc-500 font-mono font-medium">Ou</span>
-                    </div>
-                  </div>
-
+                <div className="pt-2 text-center text-[10.5px]">
+                  <span className="text-zinc-500">Não tem uma assinatura ativa? </span>
                   <button
                     type="button"
-                    onClick={handleGoogleLogin}
-                    disabled={isAuthLoading}
-                    className="w-full py-2.5 bg-zinc-950 hover:bg-zinc-900 text-gray-200 border border-zinc-805 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-2"
+                    onClick={() => {
+                      setShowAuthModal(false);
+                      const plansEl = document.getElementById('plans_section');
+                      if (plansEl) {
+                        plansEl.scrollIntoView({ behavior: 'smooth' });
+                      }
+                    }}
+                    className="text-[#a3e635] hover:underline font-bold cursor-pointer bg-transparent border-none p-0 inline-block"
                   >
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
-                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
-                    </svg>
-                    <span>Entrar com o Google</span>
+                    Assinar Agora
                   </button>
-
-                  {/* Sub toggle links */}
-                  <div className="pt-2 text-center text-[11px] text-zinc-550">
-                    <span className="text-zinc-650 font-light">Alternar: </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAuthError('');
-                        setIsRegisterMode(!isRegisterMode);
-                      }}
-                      className="text-white hover:text-[#a3e635] transition-colors underline font-medium cursor-pointer"
-                    >
-                      {isRegisterMode 
-                        ? "Fazer Login existente" 
-                        : "Criar Nova Agência / SaaS"}
-                    </button>
-                  </div>
-                </form>
-              )}
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
