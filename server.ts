@@ -186,6 +186,178 @@ async function startServer() {
     res.json({ success: true, user, defaultWorkspaceId });
   });
 
+  // 1.1 ACCOUNT RECOVERY (PASSWORD FORGOT) ENDPOINTS WITH CHANNELS & AI WRITER
+  app.post("/api/auth/recover", async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "O e-mail é obrigatório para iniciar a recuperação." });
+    }
+
+    const db = readDb();
+    const userIndex = db.owners.findIndex((o: any) => o.email.toLowerCase() === email.toLowerCase());
+    
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "Nenhum proprietário associado a este e-mail foi localizado." });
+    }
+
+    const user = db.owners[userIndex];
+    
+    // Generate 6-digit PIN code
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store Pin Code securely (15 minute validity)
+    db.owners[userIndex].recoveryPin = pin;
+    db.owners[userIndex].recoveryExpires = Date.now() + 15 * 60 * 1000;
+
+    // AI generated professional email centered around AgencyOS
+    let emailSubject = `[AgencyOS] Código de Recuperação de Senha: ${pin}`;
+    let aiEmailContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; color: #333; line-height: 1.6;">
+        <h2 style="color: #84cc16;">Agência Inteligente - AgencyOS</h2>
+        <p>Olá, ${user.name || "Membro Premium"}!</p>
+        <p>Recebemos uma solicitação de recuperação de senha para o seu painel AgencyOS.</p>
+        <p>Utilize o código pin exclusivo abaixo para redefinir as suas credenciais operacionais com segurança:</p>
+        <div style="background-color: #f3f4f6; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #111827; border-radius: 8px; margin: 20px 0;">
+          ${pin}
+        </div>
+        <p style="font-size: 12px; color: #6b7280;">Este código expira em 15 minutos. Se você não solicitou isso, desconsidere esta mensagem ou mude sua senha.</p>
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;" />
+        <p style="font-size: 11px; color: #9ca3af; text-align: center;">AgencyOS Operations Center • Powered by Gemini AI</p>
+      </div>
+    `;
+
+    if (ai) {
+      try {
+        const aiPrompt = `Você é o redator do AgencyOS, uma plataforma premium SaaS de gestão e crescimento para agências de marketing digital.
+        O proprietário "${user.name}" solicitou a recuperação do acesso dele de e-mail "${email}".
+        Gere o assunto do e-mail e o corpo dele em HTML extremamente profissional e sofisticado.
+        As especificações obrigatórias de conteúdo são:
+        - Inclua este PIN Code de recuperação em destaque: ${pin}
+        - Avise que o código é válido por 15 minutos e para guardá-lo sob estrito sigilo corporativo.
+        - O design do e-mail deve ser deslumbrante, estruturado em blocos limpos, com cores combinando o preto e verde limão (#a3e635), dando um tom estético corporativo ultra profissional e com a marca "AgencyOS".
+        - Conclua com dicas inteligentes de segurança criadas pela IA.
+        - Retorne o resultado em formato JSON contendo "subject" e "html" como chaves do objeto para que possamos extraí-lo facilmente.`;
+
+        const aiResponse = await ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: aiPrompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "OBJECT",
+              properties: {
+                subject: { type: "STRING" },
+                html: { type: "STRING" }
+              },
+              required: ["subject", "html"]
+            }
+          }
+        });
+
+        if (aiResponse.text) {
+          const parsed = JSON.parse(aiResponse.text.trim());
+          if (parsed.subject) emailSubject = parsed.subject;
+          if (parsed.html) aiEmailContent = parsed.html;
+        }
+      } catch (e) {
+        console.error("Erro ao gerar e-mail com Gemini, usando template fallback:", e);
+      }
+    }
+
+    // Try SMTP Send
+    const host = process.env.SMTP_HOST;
+    const port = Number(process.env.SMTP_PORT) || 587;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+    const smtpFrom = process.env.SMTP_FROM || '"AgencyOS Security Center" <no-reply@agencyos.com>';
+
+    let deliveryStatus = "simulado";
+    if (host && smtpUser && smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host,
+          port,
+          secure: port === 465,
+          auth: { user: smtpUser, pass: smtpPass }
+        });
+        await transporter.sendMail({
+          from: smtpFrom,
+          to: email,
+          subject: emailSubject,
+          html: aiEmailContent
+        });
+        deliveryStatus = "smtp";
+        console.log(`[Recuperação] E-mail SMTP de segurança enviado com sucesso para ${email}`);
+      } catch (err: any) {
+        console.error("[Recuperação CRM Error] Falha de conexao SMTP:", err);
+        deliveryStatus = "falha-smtp-simulation";
+      }
+    } else {
+      console.log(`[Recuperação Simulado] SMTP ausente. Código registrado para e-mail: ${email} -> PIN: ${pin}`);
+    }
+
+    // Add to global sent logs for the user to see immediately
+    const firstWorkspace = db.workspaces.find((w: any) => w.ownerEmail === email.toLowerCase());
+    const wsId = firstWorkspace ? firstWorkspace.id : "ws_init_0";
+
+    const emailRecord = {
+      id: "recover_em_" + Date.now(),
+      workspaceId: wsId,
+      to: email,
+      subject: emailSubject,
+      html: aiEmailContent,
+      pin,
+      deliveryMethod: deliveryStatus,
+      timestamp: new Date().toISOString()
+    };
+
+    if (!db.emails) db.emails = [];
+    db.emails.unshift(emailRecord);
+
+    writeDb(db);
+
+    res.json({
+      success: true,
+      message: "Processos de segurança ativos. Código de recuperação disparado!",
+      pin, // Return PIN for simulation helper
+      deliveryStatus,
+      subject: emailSubject,
+      html: aiEmailContent
+    });
+  });
+
+  app.post("/api/auth/reset-password", (req, res) => {
+    const { email, pin, newPassword } = req.body;
+    if (!email || !pin || !newPassword) {
+      return res.status(400).json({ error: "E-mail, PIN code e nova senha são obrigatórios para redefinir." });
+    }
+
+    const db = readDb();
+    const userIndex = db.owners.findIndex((o: any) => o.email.toLowerCase() === email.toLowerCase());
+
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "Usuário correspondente não localizado." });
+    }
+
+    const user = db.owners[userIndex];
+
+    if (!user.recoveryPin || user.recoveryPin.toString() !== pin.toString().trim()) {
+      return res.status(400).json({ error: "O PIN de verificação inserido está inválido ou incorreto." });
+    }
+
+    if (user.recoveryExpires && user.recoveryExpires < Date.now()) {
+      return res.status(400).json({ error: "O PIN de verificação expirou após os 15 minutos limites." });
+    }
+
+    // Update password
+    db.owners[userIndex].passwordHash = newPassword;
+    delete db.owners[userIndex].recoveryPin;
+    delete db.owners[userIndex].recoveryExpires;
+
+    writeDb(db);
+    res.json({ success: true, message: "Senha redefinida com sucesso! Você já pode prosseguir com o login usual." });
+  });
+
   // 2. WORKSPACES MULTI-TENANCY MANAGEMENT
   app.get("/api/workspaces", (req, res) => {
     const { email } = req.query;
